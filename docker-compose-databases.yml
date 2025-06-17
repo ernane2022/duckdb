@@ -1,0 +1,159 @@
+version: '3.8'
+
+services:
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: benchmark_postgres
+    environment:
+      POSTGRES_DB: benchmark_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: benchmark_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: benchmark_db
+      MYSQL_USER: benchmark_user
+      MYSQL_PASSWORD: benchmark_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # MariaDB (alternativa ao MySQL)
+  mariadb:
+    image: mariadb:10.11
+    container_name: benchmark_mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: benchmark_db
+      MARIADB_USER: benchmark_user
+      MARIADB_PASSWORD: benchmark_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # MongoDB (NoSQL para comparação)
+  mongodb:
+    image: mongo:7.0
+    container_name: benchmark_mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+      MONGO_INITDB_DATABASE: benchmark_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # Redis (In-memory database)
+  redis:
+    image: redis:7-alpine
+    container_name: benchmark_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass redis_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_password", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # ClickHouse (Column-oriented OLAP database)
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    container_name: benchmark_clickhouse
+    environment:
+      CLICKHOUSE_DB: benchmark_db
+      CLICKHOUSE_USER: benchmark_user
+      CLICKHOUSE_PASSWORD: benchmark_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native interface
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+  # CockroachDB (Distributed SQL)
+  cockroachdb:
+    image: cockroachdb/cockroach:v23.1.11
+    container_name: benchmark_cockroachdb
+    command: start-single-node --insecure --store=attrs=ssd,path=/var/lib/cockroach/
+    ports:
+      - "26257:26257"  # SQL interface
+      - "8080:8080"    # Admin UI
+    volumes:
+      - cockroachdb_data:/var/lib/cockroach
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health?ready=1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - benchmark_network
+
+volumes:
+  postgres_data:
+  mysql_data:
+  mariadb_data:
+  mongodb_data:
+  redis_data:
+  clickhouse_data:
+  cockroachdb_data:
+
+networks:
+  benchmark_network:
+    driver: bridge
