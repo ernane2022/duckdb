@@ -123,6 +123,32 @@
             100% { transform: rotate(360deg); }
         }
         
+        .progress-container {
+            margin: 20px 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            background: #f0f0f0;
+            border-radius: 10px;
+            height: 20px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(45deg, #28a745, #20c997);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        .progress-text {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #495057;
+        }
+        
         .summary-card {
             background: linear-gradient(45deg, #667eea, #764ba2);
             color: white;
@@ -307,82 +333,61 @@
             margin-bottom: 10px;
         }
         
-        .database-status {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 20px 0;
-            border-left: 4px solid #17a2b8;
-        }
-        
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            margin-top: 10px;
-        }
-        
-        .status-item {
-            padding: 8px 12px;
-            border-radius: 5px;
-            text-align: center;
+        .sequential-badge {
+            display: inline-block;
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
             font-weight: bold;
-        }
-        
-        .status-available {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .status-unavailable {
-            background: #f8d7da;
-            color: #721c24;
+            margin-left: 10px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🦆 DuckDB Multi-Database Benchmark</h1>
-            <p>Comparação Completa: DuckDB vs SQLite vs MySQL vs PostgreSQL</p>
+            <h1>🦆 DuckDB Sequential Multi-Database Benchmark</h1>
+            <p>Teste Sequencial e Isolado: DuckDB vs SQLite vs MySQL vs PostgreSQL vs MariaDB</p>
         </div>
         
         <div class="controls">
             <div class="control-group">
                 <div class="control-item">
                     <label for="numRecords">Número de Registros:</label>
-                    <input type="number" id="numRecords" value="10000" min="1000" max="100000" step="1000">
+                    <input type="number" id="numRecords" value="10000" min="1000" max="1000000" step="1000">
                 </div>
                 
-                <button class="btn" onclick="runBenchmark()" id="runBtn">
-                    🚀 Executar Benchmark Completo
+                <button class="btn" onclick="runSequentialBenchmark()" id="runBtn">
+                    🚀 Executar Benchmark Sequencial
                 </button>
             </div>
             
             <div class="info-box">
-                <h4>📊 O que estamos testando:</h4>
+                <h4>📊 Sistema de Teste Sequencial:</h4>
                 <ul style="text-align: left; margin-left: 20px;">
-                    <li><strong>🦆 DuckDB:</strong> Database analítico otimizado para OLAP</li>
-                    <li><strong>🐍 SQLite (ORM):</strong> Consultas via Django ORM</li>
-                    <li><strong>🗃️ SQLite (Raw SQL):</strong> SQL puro direto no SQLite</li>
-                    <li><strong>🐬 MySQL (ORM/Raw):</strong> Database relacional popular</li>
-                    <li><strong>🐘 PostgreSQL (ORM/Raw):</strong> Database avançado open-source</li>
+                    <li><strong>🦆 DuckDB:</strong> Testado primeiro (sem Docker)</li>
+                    <li><strong>🗃️ SQLite:</strong> Testado em seguida (embarcado)</li>
+                    <li><strong>🐘 PostgreSQL:</strong> Container iniciado → testado → parado</li>
+                    <li><strong>🐬 MySQL:</strong> Container iniciado → testado → parado</li>
+                    <li><strong>🗂️ MariaDB:</strong> Container iniciado → testado → parado</li>
                 </ul>
-            </div>
-            
-            <div class="database-status" id="databaseStatus" style="display: none;">
-                <h4>🔌 Status dos Databases:</h4>
-                <div class="status-grid" id="statusGrid">
-                    <!-- Status será preenchido dinamicamente -->
-                </div>
+                <p><strong>💡 Vantagens:</strong> Teste isolado, sem conflitos, economia de recursos</p>
             </div>
         </div>
         
         <div class="results">
             <div class="loading" id="loading">
                 <div class="spinner"></div>
-                <h3>Executando benchmark completo...</h3>
-                <p>Testando múltiplos databases, agregações, filtros e comparando performance...</p>
+                <h3 id="loadingTitle">Preparando benchmark sequencial...</h3>
+                <p id="loadingDescription">Iniciando sistema de testes isolados...</p>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p class="progress-text" id="progressText">0% - Preparando...</p>
+                </div>
             </div>
             
             <div id="resultsContainer" style="display: none;">
@@ -392,78 +397,23 @@
     </div>
     
     <script>
-        const dbConfig = {
-            'duckdb': {
-                name: 'DuckDB',
-                icon: '🦆',
-                description: 'Database Analítico OLAP'
-            },
-            'sqlite_orm': {
-                name: 'SQLite (ORM)',
-                icon: '🐍',
-                description: 'Django ORM'
-            },
-            'sqlite_raw': {
-                name: 'SQLite (Raw SQL)',
-                icon: '🗃️',
-                description: 'SQL Puro'
-            },
-            'mysql_orm': {
-                name: 'MySQL (ORM)',
-                icon: '🐬',
-                description: 'Django ORM'
-            },
-            'mysql_raw': {
-                name: 'MySQL (Raw SQL)',
-                icon: '🗄️',
-                description: 'SQL Puro'
-            },
-            'postgresql_orm': {
-                name: 'PostgreSQL (ORM)',
-                icon: '🐘',
-                description: 'Django ORM'
-            },
-            'postgresql_raw': {
-                name: 'PostgreSQL (Raw SQL)',
-                icon: '📊',
-                description: 'SQL Puro'
-            },
-            'mariadb_orm': {
-                name: 'MariaDB (ORM)',
-                icon: '🗂️',
-                description: 'Django ORM'
-            },
-            'mariadb_raw': {
-                name: 'MariaDB (Raw SQL)',
-                icon: '📋',
-                description: 'SQL Puro'
-            },
-            'cockroachdb_orm': {
-                name: 'CockroachDB (ORM)',
-                icon: '🪳',
-                description: 'Django ORM'
-            },
-            'cockroachdb_raw': {
-                name: 'CockroachDB (Raw SQL)',
-                icon: '🔗',
-                description: 'SQL Puro'
-            }
-        };
-        
-        async function runBenchmark() {
+        async function runSequentialBenchmark() {
             const numRecords = parseInt(document.getElementById('numRecords').value);
             const runBtn = document.getElementById('runBtn');
             const loading = document.getElementById('loading');
             const resultsContainer = document.getElementById('resultsContainer');
             
-            if (numRecords < 1000 || numRecords > 100000) {
-                alert('Número de registros deve estar entre 1.000 e 100.000');
+            if (numRecords < 1000 || numRecords > 1000000) {
+                alert('Número de registros deve estar entre 1.000 e 1.000.000');
                 return;
             }
             
             runBtn.disabled = true;
             loading.style.display = 'block';
             resultsContainer.style.display = 'none';
+            
+            // Simular progresso durante o teste
+            updateLoadingStatus('Iniciando benchmark sequencial...', 'Preparando ambiente de teste', 0);
             
             try {
                 const response = await fetch('/api/run-benchmark/', {
@@ -480,7 +430,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    displayResults(data.results, numRecords);
+                    displaySequentialResults(data.results, numRecords, data.databases_tested || 0);
                 } else {
                     showError(data.error || 'Erro desconhecido');
                 }
@@ -492,58 +442,85 @@
             }
         }
         
-        function displayResults(results, numRecords) {
+        function updateLoadingStatus(title, description, progress = 0) {
+            document.getElementById('loadingTitle').textContent = title;
+            document.getElementById('loadingDescription').textContent = description;
+            document.getElementById('progressFill').style.width = progress + '%';
+            document.getElementById('progressText').textContent = Math.round(progress) + '% - ' + description;
+        }
+        
+        function displaySequentialResults(results, numRecords, databasesTestedCount) {
             const resultsContainer = document.getElementById('resultsContainer');
             
-            let html = `<h2>📊 Resultados do Benchmark (${numRecords.toLocaleString()} registros)</h2>`;
+            let html = `
+                <h2>📊 Resultados do Benchmark Sequencial (${numRecords.toLocaleString()} registros)</h2>
+                <p style="margin-bottom: 20px; color: #6c757d;">
+                    <strong>${databasesTestedCount} databases testados</strong> de forma sequencial e isolada
+                    <span class="sequential-badge">TESTE SEQUENCIAL</span>
+                </p>
+            `;
             
-            // Mostrar status dos databases
-            html += createDatabaseStatus(results);
-            
-            // Summary geral
-            html += createOverallSummary(results);
+            // Resumo de databases testados
+            html += createSequentialSummary(results);
             
             // Resultados detalhados por teste
-            const testKeys = Object.keys(results);
-            for (let i = 0; i < testKeys.length; i++) {
-                const testName = testKeys[i];
-                const testResults = results[testName];
-                if (typeof testResults === 'object' && !Array.isArray(testResults)) {
-                    html += createDetailedTestCard(testName, testResults);
-                }
+            if (results.aggregation) {
+                html += createSequentialTestCard('Teste de Agregação', results.aggregation, '📈', 'GROUP BY, COUNT, SUM, AVG');
+            }
+            
+            if (results.filter) {
+                html += createSequentialTestCard('Teste de Filtros', results.filter, '🔍', 'WHERE, ORDER BY, LIMIT');
             }
             
             resultsContainer.innerHTML = html;
             resultsContainer.style.display = 'block';
         }
         
-        function createDatabaseStatus(results) {
-            const detectedDbs = new Set();
+        function createSequentialSummary(results) {
+            let html = '<div class="summary-card">';
+            html += '<div class="summary-title">⚡ Resumo do Teste Sequencial</div>';
+            html += '<div class="summary-grid">';
             
-            // Detectar quais databases foram testados
+            // Coletar todos os databases testados
+            const allDatabases = new Set();
             Object.values(results).forEach(testResult => {
-                if (typeof testResult === 'object') {
-                    Object.keys(testResult).forEach(dbKey => {
-                        if (dbConfig[dbKey]) {
-                            detectedDbs.add(dbKey);
-                        }
+                Object.keys(testResult).forEach(dbKey => {
+                    allDatabases.add(dbKey);
+                });
+            });
+            
+            // Calcular médias para cada database
+            const databaseAverages = [];
+            allDatabases.forEach(dbKey => {
+                const dbResults = [];
+                Object.values(results).forEach(testResult => {
+                    if (testResult[dbKey] && testResult[dbKey].execution_time) {
+                        dbResults.push(testResult[dbKey].execution_time);
+                    }
+                });
+                
+                if (dbResults.length > 0) {
+                    const avgTime = dbResults.reduce((a, b) => a + b, 0) / dbResults.length;
+                    const dbInfo = Object.values(results)[0][dbKey];
+                    
+                    databaseAverages.push({
+                        key: dbKey,
+                        avgTime: avgTime,
+                        dbInfo: dbInfo,
+                        testCount: dbResults.length
                     });
                 }
             });
             
-            let html = '<div class="database-status">';
-            html += '<h4>🔌 Databases Testados:</h4>';
-            html += '<div class="status-grid">';
+            // Ordenar por performance (mais rápido primeiro)
+            databaseAverages.sort((a, b) => a.avgTime - b.avgTime);
             
-            // Mostrar status de cada database
-            Object.keys(dbConfig).forEach(dbKey => {
-                const config = dbConfig[dbKey];
-                const isAvailable = detectedDbs.has(dbKey);
-                
+            databaseAverages.forEach(db => {
                 html += `
-                    <div class="status-item ${isAvailable ? 'status-available' : 'status-unavailable'}">
-                        ${config.icon} ${config.name}
-                        ${isAvailable ? '✅' : '❌'}
+                    <div class="summary-item">
+                        <h4>${db.dbInfo.db_icon || '📊'} ${db.dbInfo.db_name || db.key}</h4>
+                        <div class="summary-value">${db.avgTime.toFixed(4)}s</div>
+                        <small>Média de ${db.testCount} teste(s)</small>
                     </div>
                 `;
             });
@@ -552,62 +529,13 @@
             return html;
         }
         
-        function createOverallSummary(results) {
-            let html = '<div class="summary-card">';
-            html += '<div class="summary-title">⚡ Resumo Geral de Performance</div>';
-            html += '<div class="summary-grid">';
-            
-            // Calcular médias
-            const avgTimes = {};
-            let testCount = 0;
-            
-            const testKeys = Object.keys(results);
-            for (let i = 0; i < testKeys.length; i++) {
-                const testResults = results[testKeys[i]];
-                if (typeof testResults === 'object') {
-                    testCount++;
-                    const dbKeys = Object.keys(testResults);
-                    for (let j = 0; j < dbKeys.length; j++) {
-                        const dbKey = dbKeys[j];
-                        const dbResult = testResults[dbKey];
-                        if (typeof dbResult === 'object' && dbResult.execution_time) {
-                            if (!avgTimes[dbKey]) avgTimes[dbKey] = [];
-                            avgTimes[dbKey].push(dbResult.execution_time);
-                        }
-                    }
-                }
-            }
-            
-            // Mostrar médias ordenadas por performance
-            const avgEntries = Object.entries(avgTimes).map(([dbKey, times]) => {
-                const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
-                return [dbKey, avgTime];
-            }).sort((a, b) => a[1] - b[1]); // Ordenar por tempo (mais rápido primeiro)
-            
-            for (let k = 0; k < avgEntries.length; k++) {
-                const [dbKey, avgTime] = avgEntries[k];
-                const config = dbConfig[dbKey] || {name: dbKey, icon: '📊'};
-                
-                html += `
-                    <div class="summary-item">
-                        <h4>${config.icon} ${config.name}</h4>
-                        <div class="summary-value">${avgTime.toFixed(4)}s</div>
-                        <small>${config.description || ''}</small>
-                    </div>
-                `;
-            }
-            
-            html += '</div></div>';
-            return html;
-        }
-        
-        function createDetailedTestCard(testName, testResults) {
+        function createSequentialTestCard(testName, testResults, icon, description) {
             let html = `
                 <div class="result-card">
                     <div class="result-title">
-                        ${testName === 'aggregation' ? '📈 Teste de Agregação' : '🔍 Teste de Filtros'}
+                        ${icon} ${testName}
                         <small style="font-size: 0.7em; font-weight: normal; display: block; margin-top: 5px;">
-                            ${testName === 'aggregation' ? 'GROUP BY, COUNT, SUM, AVG' : 'WHERE, ORDER BY, LIMIT'}
+                            ${description} - Executado sequencialmente
                         </small>
                     </div>
                     <div class="comparison-grid">
@@ -616,90 +544,87 @@
             // Encontrar o mais rápido
             let fastest = null;
             let fastestTime = Infinity;
-            const dbKeys = Object.keys(testResults);
             
-            for (let i = 0; i < dbKeys.length; i++) {
-                const dbKey = dbKeys[i];
-                const dbResult = testResults[dbKey];
-                if (typeof dbResult === 'object' && typeof dbResult.execution_time === 'number') {
-                    if (dbResult.execution_time < fastestTime) {
-                        fastestTime = dbResult.execution_time;
-                        fastest = dbKey;
-                    }
+            Object.entries(testResults).forEach(([dbKey, result]) => {
+                if (result.execution_time && result.execution_time < fastestTime) {
+                    fastestTime = result.execution_time;
+                    fastest = dbKey;
                 }
-            }
+            });
             
-            // Ordenar resultados: DuckDB primeiro, depois outros por performance
-            const sortedKeys = dbKeys.filter(key => testResults[key] && typeof testResults[key].execution_time === 'number')
-                .sort((a, b) => {
-                    if (a === 'duckdb') return -1;
-                    if (b === 'duckdb') return 1;
-                    return testResults[a].execution_time - testResults[b].execution_time;
-                });
+            // Ordenar resultados por performance (apenas sucessos)
+            const sortedResults = Object.entries(testResults)
+                .filter(([_, result]) => result.status === 'success' && result.execution_time)
+                .sort(([_, a], [__, b]) => a.execution_time - b.execution_time);
             
-            for (let i = 0; i < sortedKeys.length; i++) {
-                const dbKey = sortedKeys[i];
-                const dbResult = testResults[dbKey];
+            // Adicionar erros no final
+            const errorResults = Object.entries(testResults)
+                .filter(([_, result]) => result.status !== 'success');
+            
+            [...sortedResults, ...errorResults].forEach(([dbKey, result]) => {
+                const isWinner = dbKey === fastest && result.status === 'success';
+                const speedup = result.execution_time && fastestTime ? result.execution_time / fastestTime : null;
                 
-                if (typeof dbResult === 'object' && typeof dbResult.execution_time === 'number') {
-                    const config = dbConfig[dbKey] || {name: dbKey, icon: '📊'};
-                    const isWinner = dbKey === fastest;
-                    const speedup = dbResult.execution_time / fastestTime;
-                    
-                    // Determinar classe CSS baseada no database
-                    let cssClass = 'duckdb';
-                    if (dbKey.includes('mysql')) cssClass = 'mysql';
-                    else if (dbKey.includes('postgresql')) cssClass = 'postgresql';
-                    else if (dbKey.includes('default')) cssClass = 'sqlite';
-                    
-                    html += `
-                        <div class="db-result ${cssClass} ${isWinner ? 'winner' : ''}">
-                            <div class="db-header">
-                                <span class="db-icon">${config.icon}</span>
-                                ${config.name}
-                            </div>
-                            
-                            <div class="execution-time">${dbResult.execution_time.toFixed(4)}s</div>
-                            
-                            <div class="rows-info">${dbResult.rows_returned || 0} linhas processadas</div>
-                            
-                            <div class="performance-badge ${isWinner ? 'fastest' : 'slower'}">
+                // Determinar classe CSS baseada no database
+                let cssClass = 'duckdb';
+                if (dbKey.includes('mysql')) cssClass = 'mysql';
+                else if (dbKey.includes('postgresql')) cssClass = 'postgresql';
+                else if (dbKey.includes('sqlite') || dbKey.includes('default')) cssClass = 'sqlite';
+                else if (dbKey.includes('mariadb')) cssClass = 'mysql';
+                
+                html += `
+                    <div class="db-result ${cssClass} ${isWinner ? 'winner' : ''}">
+                        <div class="db-header">
+                            <span class="db-icon">${result.db_icon || '📊'}</span>
+                            ${result.db_name || dbKey}
+                        </div>
+                        
+                        ${result.status === 'success' ? 
+                            `<div class="execution-time">${result.execution_time.toFixed(4)}s</div>` :
+                            `<div class="execution-time" style="color: #dc3545;">ERRO</div>`
+                        }
+                        
+                        <div class="rows-info">
+                            ${result.status === 'success' ? 
+                                `${result.rows_returned || 0} linhas processadas` :
+                                `Falha no teste`
+                            }
+                        </div>
+                        
+                        ${result.status === 'success' ?
+                            `<div class="performance-badge ${isWinner ? 'fastest' : 'slower'}">
                                 ${isWinner ? 
                                     '🏆 Mais Rápido!' : 
-                                    `${speedup.toFixed(2)}x mais lento`
+                                    `${speedup ? speedup.toFixed(2) + 'x mais lento' : 'N/A'}`
                                 }
-                            </div>
-                            
-                            ${config.description ? `<div style="margin-top: 10px; font-size: 0.9em; color: #6c757d;">${config.description}</div>` : ''}
+                            </div>` :
+                            `<div class="performance-badge" style="background: #dc3545; color: white;">
+                                ❌ Erro no Teste
+                            </div>`
+                        }
+                        
+                        <div style="margin-top: 10px; font-size: 0.9em; color: #6c757d;">
+                            ${result.status === 'success' ? '✅ Teste Concluído' : '❌ ' + (result.error || 'Erro desconhecido')}
                         </div>
-                    `;
-                }
-            }
+                    </div>
+                `;
+            });
             
             html += '</div>';
             
-            // Adicionar insights detalhados
-            if (testResults.duckdb) {
-                const duckdbTime = testResults.duckdb.execution_time;
-                const comparisons = [];
-                
-                Object.keys(testResults).forEach(key => {
-                    if (key !== 'duckdb' && testResults[key].execution_time) {
-                        const speedup = testResults[key].execution_time / duckdbTime;
-                        comparisons.push(`${dbConfig[key]?.name || key}: ${speedup.toFixed(2)}x`);
-                    }
-                });
-                
-                if (comparisons.length > 0) {
-                    html += `
-                        <div class="info-box">
-                            <h4>💡 Performance Comparison:</h4>
-                            <p><strong>DuckDB vs outros sistemas:</strong> ${comparisons.join(', ')}</p>
-                            <p><small>Valores mostram quantas vezes cada sistema é mais lento que o DuckDB</small></p>
-                        </div>
-                    `;
-                }
-            }
+            // Adicionar insights sobre o teste sequencial
+            html += `
+                <div class="info-box">
+                    <h4>💡 Vantagens do Teste Sequencial:</h4>
+                    <ul style="text-align: left; margin-left: 20px;">
+                        <li><strong>🔒 Isolamento completo:</strong> Cada database testado independentemente</li>
+                        <li><strong>💾 Economia de recursos:</strong> Apenas um container ativo por vez</li>
+                        <li><strong>🛡️ Sem conflitos:</strong> Eliminação de interferências entre databases</li>
+                        <li><strong>📊 Resultados mais precisos:</strong> Ambiente controlado para cada teste</li>
+                        <li><strong>🔧 Diagnóstico melhorado:</strong> Falhas isoladas e identificáveis</li>
+                    </ul>
+                </div>
+            `;
             
             html += '</div>';
             return html;
@@ -711,7 +636,7 @@
                 <div class="error">
                     <strong>❌ Erro:</strong> ${message}
                     <p style="margin-top: 10px;">
-                        <small>Verifique se os databases estão rodando e configurados corretamente.</small>
+                        <small>O sistema sequencial permite identificar exatamente onde ocorreu o problema.</small>
                     </p>
                 </div>
             `;
@@ -733,9 +658,14 @@
             return cookieValue;
         }
         
+        // Manter função antiga para compatibilidade
+        async function runBenchmark() {
+            return runSequentialBenchmark();
+        }
+        
         // Carregar página
         document.addEventListener('DOMContentLoaded', function() {
-            // Pode adicionar inicialização aqui se necessário
+            console.log('🦆 DuckDB Sequential Benchmark Dashboard carregado!');
         });
     </script>
 </body>

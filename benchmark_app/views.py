@@ -1,87 +1,128 @@
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.views.generic import TemplateView
-from .benchmark_service import BenchmarkService
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from django.utils.decorators import method_decorator
 import json
+import time
+from .benchmark_service import SequentialBenchmarkService
 
 class BenchmarkView(TemplateView):
-    template_name = 'benchmark/dashboard.html'
+    template_name = 'benchmark_app/dashboard.html'
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['title'] = 'DuckDB Performance Benchmark'
+        context['title'] = 'DuckDB Sequential Multi-Database Benchmark'
         return context
 
-def run_benchmark(request):
-    """API endpoint para executar benchmark"""
-    if request.method == 'POST':
+@csrf_exempt
+@require_POST
+def run_sequential_benchmark(request):
+    """API endpoint para executar benchmark sequencial"""
+    try:
+        data = json.loads(request.body)
+        num_records = data.get('num_records', 10000)
+        
+        if num_records < 1000 or num_records > 1000000:
+            return JsonResponse({
+                'success': False,
+                'error': 'Número de registros deve estar entre 1.000 e 1.000.000'
+            })
+        
+        service = SequentialBenchmarkService()
+        results = service.run_sequential_benchmark(num_records)
+        
+        # Transformar resultados para o formato esperado pelo frontend
+        formatted_results = {}
+        
+        for db_key, db_data in results.items():
+            config = db_data['config']
+            
+            # Agregação
+            if 'aggregation' in db_data['results']:
+                agg_result = db_data['results']['aggregation']
+                
+                if not 'aggregation' in formatted_results:
+                    formatted_results['aggregation'] = {}
+                
+                formatted_results['aggregation'][db_key] = {
+                    'execution_time': agg_result.get('execution_time'),
+                    'rows_returned': agg_result.get('rows_returned', 0),
+                    'query_type': 'aggregation',
+                    'status': agg_result.get('status', 'error'),
+                    'db_name': config['name'],
+                    'db_icon': config['icon'],
+                    'error': agg_result.get('error', None)
+                }
+            
+            # Filtros
+            if 'filter' in db_data['results']:
+                filter_result = db_data['results']['filter']
+                
+                if not 'filter' in formatted_results:
+                    formatted_results['filter'] = {}
+                
+                formatted_results['filter'][db_key] = {
+                    'execution_time': filter_result.get('execution_time'),
+                    'rows_returned': filter_result.get('rows_returned', 0),
+                    'query_type': 'filter',
+                    'status': filter_result.get('status', 'error'),
+                    'db_name': config['name'],
+                    'db_icon': config['icon'],
+                    'error': filter_result.get('error', None)
+                }
+        
+        return JsonResponse({
+            'success': True,
+            'results': formatted_results,
+            'num_records': num_records,
+            'test_type': 'sequential',
+            'databases_tested': len(results)
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f'Erro interno: {str(e)}'
+        })
+
+@csrf_exempt
+def benchmark_progress_stream(request):
+    """Endpoint para streaming de progresso em tempo real"""
+    def event_stream():
         try:
             data = json.loads(request.body)
             num_records = data.get('num_records', 10000)
             
-            # Validar número de registros
-            if num_records > 100000:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Número máximo de registros: 100.000'
-                })
+            service = SequentialBenchmarkService()
             
-            service = BenchmarkService()
-            results = service.run_full_benchmark(num_records)
+            def progress_callback(progress_data):
+                yield f"data: {json.dumps(progress_data)}\n\n"
             
-            return JsonResponse({
-                'success': True,
-                'results': results,
-                'summary': generate_summary(results)
-            })
+            # Iniciar benchmark com callback
+            results = service.run_sequential_benchmark(
+                num_records, 
+                callback=progress_callback
+            )
+            
+            # Enviar resultado final
+            yield f"data: {json.dumps({'status': 'completed', 'results': results})}\n\n"
             
         except Exception as e:
-            return JsonResponse({
-                'success': False,
-                'error': str(e)
-            })
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
     
-    return JsonResponse({'error': 'Method not allowed'}, status=405)
+    response = StreamingHttpResponse(
+        event_stream(),
+        content_type='text/event-stream'
+    )
+    response['Cache-Control'] = 'no-cache'
+    response['Connection'] = 'keep-alive'
+    return response
 
-def generate_summary(results):
-    """Gera resumo dos resultados"""
-    summary = {}
-    
-    # Converter para lista para evitar modificação durante iteração
-    results_items = list(results.items())
-    
-    for test_name, test_results in results_items:
-        if isinstance(test_results, dict) and 'duckdb' in test_results:
-            # Encontrar tempos de execução
-            duckdb_time = test_results['duckdb'].get('execution_time', 0)
-            
-            # Coletar outros databases
-            other_dbs = {}
-            test_items = list(test_results.items())
-            
-            for db_name, db_result in test_items:
-                if (db_name != 'duckdb' and 
-                    isinstance(db_result, dict) and 
-                    'execution_time' in db_result):
-                    other_dbs[db_name] = db_result['execution_time']
-            
-            if other_dbs and duckdb_time > 0:
-                # Encontrar o mais lento
-                slowest_db = max(other_dbs.items(), key=lambda x: x[1])
-                fastest_db = min(other_dbs.items(), key=lambda x: x[1])
-                
-                summary[test_name] = {
-                    'duckdb_time': duckdb_time,
-                    'fastest_other': {
-                        'database': fastest_db[0],
-                        'time': fastest_db[1]
-                    },
-                    'slowest_other': {
-                        'database': slowest_db[0], 
-                        'time': slowest_db[1]
-                    },
-                    'speedup_vs_fastest': fastest_db[1] / duckdb_time if duckdb_time > 0 else 1,
-                    'speedup_vs_slowest': slowest_db[1] / duckdb_time if duckdb_time > 0 else 1
-                }
-    
-    return summary
+# Manter compatibilidade com endpoint antigo
+@csrf_exempt
+@require_POST
+def run_benchmark(request):
+    """Endpoint compatível com versão anterior - agora usa sistema sequencial"""
+    return run_sequential_benchmark(request)
